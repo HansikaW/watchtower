@@ -2,9 +2,10 @@ package container
 
 import (
 	"fmt"
-	"github.com/containrrr/watchtower/internal/util"
 	"strconv"
 	"strings"
+
+	"github.com/containrrr/watchtower/internal/util"
 
 	"github.com/docker/docker/api/types"
 	dockercontainer "github.com/docker/docker/api/types/container"
@@ -94,6 +95,13 @@ func (c Container) Enabled() (bool, bool) {
 func (c Container) Links() []string {
 	var links []string
 
+	dependsOnLabelValue := c.getLabelValueOrEmpty(dependsOnLabel)
+
+	if dependsOnLabelValue != "" {
+		links := strings.Split(dependsOnLabelValue, ",")
+		return links
+	}
+
 	if (c.containerInfo != nil) && (c.containerInfo.HostConfig != nil) {
 		for _, link := range c.containerInfo.HostConfig.Links {
 			name := strings.Split(link, ":")[0]
@@ -116,6 +124,25 @@ func (c Container) ToRestart() bool {
 // the container metadata.
 func (c Container) IsWatchtower() bool {
 	return ContainsWatchtowerLabel(c.containerInfo.Config.Labels)
+}
+
+// PreUpdateTimeout checks whether a container has a specific timeout set
+// for how long the pre-update command is allowed to run. This value is expressed
+// either as an integer, in minutes, or as 0 which will allow the command/script
+// to run indefinitely. Users should be cautious with the 0 option, as that
+// could result in watchtower waiting forever.
+func (c Container) PreUpdateTimeout() int {
+	var minutes int
+	var err error
+
+	val := c.getLabelValueOrEmpty(preUpdateTimeoutLabel)
+
+	minutes, err = strconv.Atoi(val)
+	if err != nil || val == "" {
+		return 1
+	}
+
+	return minutes
 }
 
 // StopSignal returns the custom stop signal (if any) that is encoded in the
@@ -153,12 +180,11 @@ func (c Container) runtimeConfig() *dockercontainer.Config {
 		config.Hostname = ""
 	}
 
-	if util.SliceEqual(config.Cmd, imageConfig.Cmd) {
-		config.Cmd = nil
-	}
-
 	if util.SliceEqual(config.Entrypoint, imageConfig.Entrypoint) {
 		config.Entrypoint = nil
+		if util.SliceEqual(config.Cmd, imageConfig.Cmd) {
+			config.Cmd = nil
+		}
 	}
 
 	config.Env = util.SliceSubtract(config.Env, imageConfig.Env)
